@@ -33,6 +33,21 @@ interface GameContextType {
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
+// Active Procrastination Monster at instant `now`, given the damage dealt to the current monster.
+export function computeMonster(quests: Quest[], now: number, damage: number): GameContextType["activeMonster"] {
+  const overdueCount = quests.filter((q) => isOverdue(q, now)).length;
+  if (overdueCount === 0) return null;
+  const isBoss = overdueCount >= 3;
+  const hpMax = overdueCount * 100;
+  return {
+    name: isBoss ? "Scope-Creep Kraken (BOSS)" : "Bug Goblin",
+    type: isBoss ? "boss" : "regular",
+    hpMax,
+    hp: Math.max(0, hpMax - damage),
+    overdueCount,
+  };
+}
+
 // Base reward of a newly created quest: questXP = 44 × difficulty (SRS v1.1, REQ-XP-07, REQ-XP-08)
 export const XP_PER_DIFFICULTY = 44;
 
@@ -293,23 +308,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // Compute active monsters from overdue quests
-  const overdueQuests = quests.filter((q) => isOverdue(q, Date.now()));
-  const overdueCount = overdueQuests.length;
-
-  let activeMonster: GameContextType["activeMonster"] = null;
-  if (overdueCount > 0) {
-    const isBoss = overdueCount >= 3;
-    const hpMax = overdueCount * 100;
-    const hp = Math.max(0, hpMax - monsterDamage);
-
-    activeMonster = {
-      name: isBoss ? "Scope-Creep Kraken (BOSS)" : "Bug Goblin",
-      type: isBoss ? "boss" : "regular",
-      hpMax,
-      hp,
-      overdueCount,
-    };
-  }
+  const activeMonster = computeMonster(quests, Date.now(), monsterDamage);
+  const overdueCount = activeMonster?.overdueCount ?? 0;
 
   // Handle damage to monster
   const dealMonsterDamage = useCallback((damage: number) => {
@@ -467,7 +467,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const finalXp = calculateEarnedXp(base, nextAvatar.streak, deadline === null ? null : deadline - completionTs);
       
       // Gold blocked if a Procrastination Monster is active
-      const isGoldBlocked = activeMonster && activeMonster.hp > 0;
+      // Monster state immediately before completion, at the completion timestamp (REQ-FRG-04).
+      // Damage counts only for the same monster; a different overdue count means a fresh monster.
+      const countBefore = computeMonster(quests, completionTs, 0)?.overdueCount ?? 0;
+      const monsterBefore = computeMonster(quests, completionTs, countBefore === overdueCount ? monsterDamage : 0);
+      const isGoldBlocked = monsterBefore !== null && monsterBefore.hp > 0;
       const finalGold = isGoldBlocked ? 0 : calculateEarnedGold(finalXp);
 
       // Apply changes to Avatar profile
@@ -555,7 +559,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       pushToast("info", "Quest Un-done", `Quest status reset. XP/Gold adjusted.`);
     }
-  }, [quests, avatar, activeMonster, overdueCount, unlockedAchievements, purchasedRewards, dealMonsterDamage, pushToast, checkAchievements]);
+  }, [quests, avatar, activeMonster, overdueCount, monsterDamage, unlockedAchievements, purchasedRewards, dealMonsterDamage, pushToast, checkAchievements]);
 
   // Delete Quest
   const deleteQuest = useCallback(async (id: number) => {
