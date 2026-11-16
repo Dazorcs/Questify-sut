@@ -1,5 +1,5 @@
 import React from "react";
-import { useGame, REWARDS_LIBRARY } from "../context/GameContext";
+import { useGame, REWARDS_LIBRARY, calculateLevelFromXp } from "../context/GameContext";
 import { Button } from "../components/core/Button";
 import { Avatar } from "../components/core/Avatar";
 import { Volume2, VolumeX, Shield, UserRound } from "lucide-react";
@@ -14,6 +14,9 @@ export function CharacterView() {
   } = useGame();
 
   if (!avatar) return null;
+
+  // Level is derived from cumulative XP everywhere (REQ-LVL-07)
+  const level = calculateLevelFromXp(avatar.xp).level;
 
   // Resolve equipped cosmetic emojis
   const equippedHeadItem = REWARDS_LIBRARY.find((r) => r.id === avatar.equippedHead);
@@ -68,7 +71,7 @@ export function CharacterView() {
           <Avatar
             name="Ada Lovelace"
             size={100}
-            level={avatar.level}
+            level={level}
             ring={true}
           />
 
@@ -127,7 +130,7 @@ export function CharacterView() {
           textTransform: "uppercase",
           letterSpacing: "0.08em"
         }}>
-          {avatar.class} · Level {avatar.level}
+          {avatar.class} · Level {level}
         </p>
       </div>
 

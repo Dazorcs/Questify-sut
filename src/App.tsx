@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useGame, REWARDS_LIBRARY, XP_PER_DIFFICULTY } from "./context/GameContext";
+import { useGame, REWARDS_LIBRARY, XP_PER_DIFFICULTY, calculateLevelFromXp } from "./context/GameContext";
 import { DashboardView } from "./views/DashboardView";
 import { AchievementsView } from "./views/AchievementsView";
 import { RewardForgeView } from "./views/RewardForgeView";
@@ -205,7 +205,7 @@ export function App() {
               color: "var(--gold-300)", border: "2px solid var(--bg-subtle)",
               fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 11,
               display: "inline-flex", alignItems: "center", justifyContent: "center"
-            }}>{avatar.level}</span>
+            }}>{calculateLevelFromXp(avatar.xp).level}</span>
           </span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 14, color: "var(--text-strong)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

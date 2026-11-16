@@ -90,20 +90,19 @@ export function isOverdue(q: Quest, now: number): boolean {
   return q.overdue || (deadline !== null && deadline < now);
 }
 
-// Helper for Level curve: Fn = 100 * n^1.6 (XP required for Level n)
+// Cumulative entry threshold of level n: T(1) = 0, T(n) = floor(100 × n^1.6) for n ≥ 2 (REQ-LVL-01, REQ-LVL-02)
 export function getXpRequiredForLevel(level: number): number {
-  if (level <= 0) return 0;
+  if (level <= 1) return 0;
   return Math.floor(100 * Math.pow(level, 1.6));
 }
 
 // Helper to calculate Level from Total XP
 export function calculateLevelFromXp(totalXp: number): { level: number; xpInLevel: number; xpMaxForLevel: number } {
+  // Level = the largest n ≥ 1 with totalXP ≥ T(n); reaching a threshold exactly grants that level (REQ-LVL-03)
   let level = 1;
-  while (totalXp >= getXpRequiredForLevel(level)) {
+  while (totalXp >= getXpRequiredForLevel(level + 1)) {
     level++;
   }
-  level = level - 1; // current level
-  if (level < 1) level = 1;
 
   const baseForCurrent = getXpRequiredForLevel(level);
   const baseForNext = getXpRequiredForLevel(level + 1);
@@ -148,7 +147,7 @@ export const ACHIEVEMENTS_LIBRARY: Omit<Achievement, "unlocked" | "progress">[] 
 export const DEFAULT_AVATAR: AvatarState = {
   id: 1,
   level: 14,
-  xp: 7496, // 6856 (Level 14 base) + 640
+  xp: 7496, // T(14) = 6820, so 676 XP into level 14
   gold: 1240,
   tokens: 6,
   streak: 7,
