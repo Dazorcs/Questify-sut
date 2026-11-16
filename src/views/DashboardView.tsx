@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useGame, getXpRequiredForLevel, calculateLevelFromXp } from "../context/GameContext";
+import { useGame, getXpRequiredForLevel, calculateLevelFromXp, isOverdue } from "../context/GameContext";
 import { QuestCard } from "../components/game/QuestCard";
 import { XpBar } from "../components/game/XpBar";
 import { MonsterCard } from "../components/game/MonsterCard";
@@ -218,7 +218,7 @@ export function DashboardView() {
               xp={q.xp}
               due={q.due}
               done={q.done}
-              overdue={q.overdue || (!q.done && new Date(q.due).getTime() < Date.now())}
+              overdue={isOverdue(q, Date.now())}
               onToggle={() => toggleQuest(q.id)}
             />
             {/* Trash button positioned absolute on hover */}

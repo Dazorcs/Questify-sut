@@ -36,6 +36,23 @@ const GameContext = createContext<GameContextType | undefined>(undefined);
 // Base reward of a newly created quest: questXP = 44 × difficulty (SRS v1.1, REQ-XP-07, REQ-XP-08)
 export const XP_PER_DIFFICULTY = 44;
 
+// Deadline bonus window: 0 ≤ h ≤ 4 hours before the deadline (REQ-XP-10)
+export const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+
+// Deadline instant of a quest: the stored timestamp, or (for older data) the parsed display text.
+export function getDeadline(q: Quest): number | null {
+  if (typeof q.dueAt === "number" && Number.isFinite(q.dueAt)) return q.dueAt;
+  const parsed = Date.parse(q.due);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+// Overdue = incomplete and either flagged overdue or its deadline is strictly earlier than `now`.
+export function isOverdue(q: Quest, now: number): boolean {
+  if (q.done) return false;
+  const deadline = getDeadline(q);
+  return q.overdue || (deadline !== null && deadline < now);
+}
+
 // Helper for Level curve: Fn = 100 * n^1.6 (XP required for Level n)
 export function getXpRequiredForLevel(level: number): number {
   if (level <= 0) return 0;
@@ -121,6 +138,7 @@ export const DEFAULT_QUESTS = (): Quest[] => {
       diff: 1,
       tags: ["daily"],
       due: yesterday.toLocaleString(),
+      dueAt: yesterday.getTime(),
       done: true,
       xp: 40,
       gold: 5,
@@ -135,6 +153,7 @@ export const DEFAULT_QUESTS = (): Quest[] => {
       diff: 2,
       tags: ["code", "review"],
       due: today2pm.getTime() < now.getTime() ? "Today 2pm" : today2pm.toLocaleString(),
+      ...(today2pm.getTime() < now.getTime() ? {} : { dueAt: today2pm.getTime() }),
       done: false,
       xp: 120,
       gold: 15,
@@ -148,6 +167,7 @@ export const DEFAULT_QUESTS = (): Quest[] => {
       diff: 2,
       tags: ["bug"],
       due: today5pm.getTime() < now.getTime() ? "Today 5pm" : today5pm.toLocaleString(),
+      ...(today5pm.getTime() < now.getTime() ? {} : { dueAt: today5pm.getTime() }),
       done: false,
       xp: 140,
       gold: 18,
@@ -161,6 +181,7 @@ export const DEFAULT_QUESTS = (): Quest[] => {
       diff: 3,
       tags: ["planning"],
       due: today6pm.getTime() < now.getTime() ? "Today 6pm" : today6pm.toLocaleString(),
+      ...(today6pm.getTime() < now.getTime() ? {} : { dueAt: today6pm.getTime() }),
       done: false,
       xp: 260,
       gold: 32,
@@ -174,6 +195,7 @@ export const DEFAULT_QUESTS = (): Quest[] => {
       diff: 3,
       tags: ["release"],
       due: yesterday.toLocaleString(),
+      dueAt: yesterday.getTime(),
       done: false,
       xp: 300,
       gold: 38,
@@ -249,7 +271,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // Compute active monsters from overdue quests
-  const overdueQuests = quests.filter((q) => !q.done && (q.overdue || new Date(q.due).getTime() < Date.now()));
+  const overdueQuests = quests.filter((q) => isOverdue(q, Date.now()));
   const overdueCount = overdueQuests.length;
 
   let activeMonster: GameContextType["activeMonster"] = null;
@@ -362,6 +384,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       diff,
       tags,
       due: parsedDue,
+      ...(dueTime ? { dueAt: dueTime } : {}),
       done: false,
       xp: calculatedXp,
       gold: calculatedGold,
@@ -385,13 +408,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const toggleQuest = useCallback(async (id: number) => {
     if (!avatar) return;
 
+    // One captured completion timestamp for everything this completion calculates (REQ-XP-06)
+    const completionTs = Date.now();
+
     const nextQuests = quests.map((q) => {
       if (q.id !== id) return q;
 
       const nextDone = !q.done;
       let completedAt = undefined;
       if (nextDone) {
-        completedAt = Date.now();
+        completedAt = completionTs;
       }
 
       return {
@@ -416,18 +442,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // streak% multiplier (e.g. 5% per streak day)
       const streakPct = Math.min(1.0, nextAvatar.streak * 0.05);
 
-      // deadline pressure multiplier (up to 2x if within 4 hrs)
+      // deadline pressure multiplier: 2 − h/4 for 0 ≤ h ≤ 4 hours left, otherwise 1 (REQ-XP-10, REQ-XP-11)
       let deadlinePressure = 1.0;
-      if (toggledQuest.due) {
-        const dueTimestamp = Date.parse(toggledQuest.due);
-        if (!isNaN(dueTimestamp)) {
-          const now = Date.now();
-          const msLeft = dueTimestamp - now;
-          const hrsLeft = msLeft / (1000 * 60 * 60);
-          if (hrsLeft > 0 && hrsLeft <= 4) {
-            // scale from 2.0 at 0 hrs to 1.0 at 4 hrs
-            deadlinePressure = 1.0 + (1.0 - hrsLeft / 4);
-          }
+      const deadline = getDeadline(toggledQuest);
+      if (deadline !== null) {
+        const msLeft = deadline - completionTs;
+        if (msLeft >= 0 && msLeft <= FOUR_HOURS_MS) {
+          deadlinePressure = 2 - msLeft / FOUR_HOURS_MS;
         }
       }
 
@@ -558,14 +579,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Time-Freeze boost delays all incomplete deadlines by 24 hours
       const nextQuests = quests.map((q) => {
         if (q.done) return q;
-        let dueTime = Date.now() + 24 * 60 * 60 * 1000;
-        const dueTimestamp = Date.parse(q.due);
-        if (!isNaN(dueTimestamp)) {
-          dueTime = dueTimestamp + 24 * 60 * 60 * 1000;
-        }
+        const current = getDeadline(q);
+        const dueTime = (current ?? Date.now()) + 24 * 60 * 60 * 1000;
         return {
           ...q,
           due: new Date(dueTime).toLocaleString(),
+          dueAt: dueTime,
           overdue: false,
         };
       });
@@ -639,6 +658,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         diff: 2,
         tags: ["jira", "auth"],
         due: new Date(now + 2 * 60 * 60 * 1000).toLocaleString(),
+        dueAt: now + 2 * 60 * 60 * 1000,
         done: false,
         xp: 110,
         gold: 14,
@@ -652,6 +672,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         diff: 1,
         tags: ["jira", "ui"],
         due: new Date(now + 24 * 60 * 60 * 1000).toLocaleString(),
+        dueAt: now + 24 * 60 * 60 * 1000,
         done: false,
         xp: 50,
         gold: 6,
@@ -672,6 +693,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         diff: 1,
         tags: ["calendar", "meeting"],
         due: new Date(now + 1 * 60 * 60 * 1000).toLocaleString(),
+        dueAt: now + 1 * 60 * 60 * 1000,
         done: false,
         xp: 40,
         gold: 5,
@@ -732,15 +754,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const nextQuests = quests.map((q) => {
       if (q.done) return q;
 
-      let nextDueTimestamp = Date.now() - 10000; // default slightly past now
-      const currentDueTimestamp = Date.parse(q.due);
-      if (!isNaN(currentDueTimestamp)) {
-        nextDueTimestamp = currentDueTimestamp - msToSubtract;
-      }
+      const current = getDeadline(q);
+      const nextDueTimestamp = current !== null ? current - msToSubtract : Date.now() - 10000; // default slightly past now
 
       return {
         ...q,
         due: new Date(nextDueTimestamp).toLocaleString(),
+        dueAt: nextDueTimestamp,
         overdue: nextDueTimestamp < Date.now(),
       };
     });

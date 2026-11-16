@@ -4,7 +4,8 @@ export interface Quest {
   description?: string;
   diff: number; // 1 = Easy, 2 = Medium, 3 = Hard
   tags: string[];
-  due: string;
+  due: string; // display text, e.g. "Today 5pm"
+  dueAt?: number; // deadline instant, ms since epoch (REQ-XP-10); absent for text-only deadlines
   done: boolean;
   xp: number;
   gold: number;
