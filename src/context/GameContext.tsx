@@ -33,6 +33,9 @@ interface GameContextType {
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
+// Base reward of a newly created quest: questXP = 44 × difficulty (SRS v1.1, REQ-XP-07, REQ-XP-08)
+export const XP_PER_DIFFICULTY = 44;
+
 // Helper for Level curve: Fn = 100 * n^1.6 (XP required for Level n)
 export function getXpRequiredForLevel(level: number): number {
   if (level <= 0) return 0;
@@ -349,9 +352,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const parsedDue = dueTime ? new Date(dueTime).toLocaleString() : dueStr;
     const isOverdue = dueTime ? dueTime < now : dueStr.toLowerCase().includes("yesterday");
 
-    // XP math base reward
-    const baseReward = 40;
-    const calculatedXp = Math.round(baseReward * diff * 1.1);
+    // questXP = 44 × difficulty, for Quest Builder and Quest Templates alike (REQ-XP-07, REQ-XP-08)
+    const calculatedXp = XP_PER_DIFFICULTY * diff;
     const calculatedGold = Math.round(calculatedXp / 8);
 
     const newQuest: Quest = {
@@ -430,7 +432,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // XP = Base × Difficulty × (1 + streak%) × Deadline pressure
-      // Here, Base is already difficulty-scaled in toggledQuest.xp = (baseReward * diff * 1.1)
+      // Here, Base is already difficulty-scaled in toggledQuest.xp = 44 × difficulty
       const finalXp = Math.round(base * (1 + streakPct) * deadlinePressure);
       
       // Gold blocked if a Procrastination Monster is active

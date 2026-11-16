@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useGame, REWARDS_LIBRARY } from "./context/GameContext";
+import { useGame, REWARDS_LIBRARY, XP_PER_DIFFICULTY } from "./context/GameContext";
 import { DashboardView } from "./views/DashboardView";
 import { AchievementsView } from "./views/AchievementsView";
 import { RewardForgeView } from "./views/RewardForgeView";
@@ -68,8 +68,7 @@ export function App() {
   });
 
   // Calculate live preview rewards in builder
-  const baseReward = 40;
-  const previewXp = Math.round(baseReward * qDiff * 1.1);
+  const previewXp = XP_PER_DIFFICULTY * qDiff;
   const previewGold = Math.round(previewXp / 8);
 
   // Set theme on root element when it changes
