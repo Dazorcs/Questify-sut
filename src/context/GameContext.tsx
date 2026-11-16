@@ -39,6 +39,28 @@ export const XP_PER_DIFFICULTY = 44;
 // Deadline bonus window: 0 ≤ h ≤ 4 hours before the deadline (REQ-XP-10)
 export const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
 
+// round(x) = floor(x + 1/2) for x = num / den ≥ 0, computed exactly (REQ-XP-04, REQ-XP-05)
+export function roundHalfUp(num: bigint, den: bigint): number {
+  return Number((2n * num + den) / (2n * den));
+}
+
+// earnedXP = round(questXP × (1 + streakBonus) × deadlineMultiplier) with no intermediate rounding (REQ-XP-09…REQ-XP-12).
+// streakBonus = min(0.05 × streak, 1) = min(streak, 20) / 20; deadlineMultiplier = 2 − msLeft / 4h inside the window, else 1.
+export function calculateEarnedXp(questXp: number, streak: number, msLeft: number | null): number {
+  const streakTwentieths = 20 + Math.min(Math.max(Math.trunc(streak), 0), 20);
+  const inWindow = msLeft !== null && msLeft >= 0 && msLeft <= FOUR_HOURS_MS;
+  const deadlineNumerator = inWindow ? 2 * FOUR_HOURS_MS - Math.round(msLeft as number) : FOUR_HOURS_MS;
+  return roundHalfUp(
+    BigInt(questXp) * BigInt(streakTwentieths) * BigInt(deadlineNumerator),
+    20n * BigInt(FOUR_HOURS_MS)
+  );
+}
+
+// earnedGold = round(earnedXP / 8) (REQ-FRG-03)
+export function calculateEarnedGold(earnedXp: number): number {
+  return roundHalfUp(BigInt(earnedXp), 8n);
+}
+
 // Deadline instant of a quest: the stored timestamp, or (for older data) the parsed display text.
 export function getDeadline(q: Quest): number | null {
   if (typeof q.dueAt === "number" && Number.isFinite(q.dueAt)) return q.dueAt;
@@ -376,7 +398,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // questXP = 44 × difficulty, for Quest Builder and Quest Templates alike (REQ-XP-07, REQ-XP-08)
     const calculatedXp = XP_PER_DIFFICULTY * diff;
-    const calculatedGold = Math.round(calculatedXp / 8);
+    const calculatedGold = calculateEarnedGold(calculatedXp);
 
     const newQuest: Quest = {
       id: now,
@@ -439,26 +461,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Calculate multipliers
       const base = toggledQuest.xp;
       
-      // streak% multiplier (e.g. 5% per streak day)
-      const streakPct = Math.min(1.0, nextAvatar.streak * 0.05);
-
-      // deadline pressure multiplier: 2 − h/4 for 0 ≤ h ≤ 4 hours left, otherwise 1 (REQ-XP-10, REQ-XP-11)
-      let deadlinePressure = 1.0;
-      const deadline = getDeadline(toggledQuest);
-      if (deadline !== null) {
-        const msLeft = deadline - completionTs;
-        if (msLeft >= 0 && msLeft <= FOUR_HOURS_MS) {
-          deadlinePressure = 2 - msLeft / FOUR_HOURS_MS;
-        }
-      }
-
-      // XP = Base × Difficulty × (1 + streak%) × Deadline pressure
+      // XP = Base × Difficulty × (1 + streak%) × Deadline pressure, exact (REQ-XP-05, REQ-XP-09…REQ-XP-12)
       // Here, Base is already difficulty-scaled in toggledQuest.xp = 44 × difficulty
-      const finalXp = Math.round(base * (1 + streakPct) * deadlinePressure);
+      const deadline = getDeadline(toggledQuest);
+      const finalXp = calculateEarnedXp(base, nextAvatar.streak, deadline === null ? null : deadline - completionTs);
       
       // Gold blocked if a Procrastination Monster is active
       const isGoldBlocked = activeMonster && activeMonster.hp > 0;
-      const finalGold = isGoldBlocked ? 0 : Math.round(finalXp / 8);
+      const finalGold = isGoldBlocked ? 0 : calculateEarnedGold(finalXp);
 
       // Apply changes to Avatar profile
       const oldTotalXp = nextAvatar.xp;
